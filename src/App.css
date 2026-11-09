@@ -16,6 +16,8 @@
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 28px;
+  position: relative;
+  z-index: 100;
 }
 
 .header-actions {
@@ -49,37 +51,29 @@
 }
 
 /* ── Controls ─────────────────────────────────────────────────────────────── */
-.selector-wrap {
-  min-width: 240px;
+/* GameSearchSelect wraps the react-select Async combobox */
+.game-search-wrap {
+  min-width: 300px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  position: relative;
+  z-index: 200;
 }
 
-.selector-wrap label {
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
+/* react-select menu portal — renders inside <body>, needs high z-index */
+.game-select-portal {
+  z-index: 9999 !important;
+}
+
+.game-search-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #8ba9c3;
+  font-weight: 600;
 }
 
-.selector-wrap select,
-.date-filters input {
-  width: 100%;
-  background: rgba(14, 22, 31, 0.9);
-  border: 1px solid rgba(118, 149, 175, 0.25);
-  color: #edf7ff;
-  border-radius: 10px;
-  padding: 0.82rem 0.9rem;
-  font: inherit;
-  transition: border-color 0.2s;
-}
-
-.selector-wrap select:focus,
-.date-filters input:focus {
-  outline: none;
-  border-color: rgba(102, 192, 244, 0.5);
-}
 
 .pdf-button {
   border: 1px solid rgba(102, 192, 244, 0.4);
@@ -91,11 +85,57 @@
   cursor: pointer;
   white-space: nowrap;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  align-self: flex-end;
 }
 
 .pdf-button:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 24px rgba(29, 122, 217, 0.35);
+}
+
+/* ── API status banners ───────────────────────────────────────────────────── */
+.api-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  margin-bottom: 16px;
+  animation: fadeIn 0.3s ease;
+}
+
+.api-status.loading {
+  background: rgba(102, 192, 244, 0.1);
+  border: 1px solid rgba(102, 192, 244, 0.3);
+  color: #66c0f4;
+}
+
+.api-status.error {
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  color: #ff9b9b;
+}
+
+/* Spinning loader dot */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(102, 192, 244, 0.3);
+  border-top-color: #66c0f4;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Card base ────────────────────────────────────────────────────────────── */

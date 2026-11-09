@@ -1,11 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import "./App.css";
 
-// ── Data (swap these imports for API calls when ready) ──────────────────────
-import { dropdownOptions, gameDetails } from "./data/games";
+// ── Static data (stats stay hardcoded, game metadata comes from API) ──────────
+import { gameDetails as hardcodedGameDetails } from "./data/games";
 import { gameCommentsById } from "./data/comments";
 
-// ── Statistical utilities ────────────────────────────────────────────────────
+// ── API service ───────────────────────────────────────────────────────────────
+import { fetchGame } from "./services/api";
+import type { GameDto } from "./types";
+
+// ── Statistical utilities ─────────────────────────────────────────────────────
 import {
   buildHistogram,
   buildTopComments,
@@ -24,17 +28,66 @@ import EquationsPanel from "./components/EquationsPanel";
 import SentimentTimeline from "./components/SentimentTimeline";
 import CommentsSection from "./components/CommentsSection";
 import RankingPanel from "./components/RankingPanel";
+import GameSearchSelect from "./components/GameSearchSelect";
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+type GameOption = { value: string; label: string };
+
+// Default game shown on first load (hardcoded fallback)
+const DEFAULT_GAME_ID = "the-forest";
+
 function App() {
-  const [selectedGameId, setSelectedGameId] = useState<string>(dropdownOptions[0].id);
+  // ── Selector state ──────────────────────────────────────────────────────────
+  const [selectedOption, setSelectedOption] = useState<GameOption | null>({
+    value: DEFAULT_GAME_ID,
+    label: hardcodedGameDetails[DEFAULT_GAME_ID]?.title ?? DEFAULT_GAME_ID,
+  });
+
+  // ── Game metadata: starts with hardcoded fallback, replaced by API data ─────
+  const [selectedGame, setSelectedGame] = useState<GameDto>(
+    hardcodedGameDetails[DEFAULT_GAME_ID],
+  );
+  const [gameLoading, setGameLoading] = useState(false);
+  const [gameError, setGameError] = useState<string | null>(null);
+
+  // ── Date filter state ────────────────────────────────────────────────────────
   const [startDate, setStartDate] = useState("2024-01-01");
   const [endDate, setEndDate] = useState("2024-12-31");
 
-  const selectedGame = gameDetails[selectedGameId] ?? gameDetails[dropdownOptions[0].id];
+  // ── Handle game selection ────────────────────────────────────────────────────
+  const handleGameChange = useCallback(async (option: GameOption | null) => {
+    setSelectedOption(option);
+    setGameError(null);
 
-  // Filter + sort comments by date range
+    if (!option) return;
+
+    const gameId = option.value;
+
+    // 1. If we have hardcoded metadata, use it immediately (no flicker)
+    if (hardcodedGameDetails[gameId]) {
+      setSelectedGame(hardcodedGameDetails[gameId]);
+    }
+
+    // 2. Always fetch from API to get fresh/accurate data
+    setGameLoading(true);
+    try {
+      const apiGame = await fetchGame(gameId);
+      setSelectedGame(apiGame);
+    } catch (err) {
+      // If API fails and we have hardcoded fallback, keep it silently
+      if (!hardcodedGameDetails[gameId]) {
+        setGameError("No se pudo cargar la información del juego.");
+      }
+    } finally {
+      setGameLoading(false);
+    }
+  }, []);
+
+  // ── Active game ID (for stats lookup) ───────────────────────────────────────
+  const selectedGameId = selectedOption?.value ?? DEFAULT_GAME_ID;
+
+  // ── Filter + sort comments by date range (stats stay hardcoded) ─────────────
   const filteredComments = useMemo(() => {
     const start = startDate ? new Date(startDate) : null;
     const end = endDate ? new Date(endDate) : null;
@@ -49,7 +102,7 @@ function App() {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [selectedGameId, startDate, endDate]);
 
-  // Derived data — all computed from filteredComments
+  // ── Derived statistics ───────────────────────────────────────────────────────
   const sentimentSummary = useMemo(
     () => buildSentimentSummary(filteredComments),
     [filteredComments],
@@ -69,9 +122,9 @@ function App() {
 
   const topComments = useMemo(() => buildTopComments(filteredComments), [filteredComments]);
 
-  // Global ranking across ALL games (not filtered)
+  // Global ranking across ALL hardcoded games (not affected by filter)
   const ranking = useMemo(
-    () => buildRanking(gameCommentsById, gameDetails),
+    () => buildRanking(gameCommentsById, hardcodedGameDetails),
     [],
   );
 
@@ -85,26 +138,29 @@ function App() {
         </div>
 
         <div className="header-actions">
-          <div className="selector-wrap">
-            <label htmlFor="game-select">Juego</label>
-            <select
-              id="game-select"
-              value={selectedGameId}
-              onChange={(e) => setSelectedGameId(e.target.value)}
-            >
-              {dropdownOptions.map(({ id, name }) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* ── Async game search combobox ─────────────────────────────────── */}
+          <GameSearchSelect
+            value={selectedOption}
+            onChange={handleGameChange}
+          />
 
           <button type="button" className="pdf-button" onClick={() => window.print()}>
             Exportar PDF
           </button>
         </div>
       </header>
+
+      {/* ── API status feedback ─────────────────────────────────────────────── */}
+      {gameLoading && (
+        <div className="api-status loading" role="status" aria-live="polite">
+          <span className="spinner" /> Cargando información del juego…
+        </div>
+      )}
+      {gameError && (
+        <div className="api-status error" role="alert">
+          ⚠️ {gameError}
+        </div>
+      )}
 
       {/* ── Main grid ──────────────────────────────────────────────────────── */}
       <main className="content-grid">
@@ -118,7 +174,7 @@ function App() {
         {/* Row 3: Global ranking (full width) */}
         <RankingPanel ranking={ranking} />
 
-        {/* Row 3: Histogram + Comments */}
+        {/* Row 4: Histogram + Comments */}
         <HistogramChart
           histogram={histogram}
           startDate={startDate}
@@ -128,10 +184,10 @@ function App() {
         />
         <CommentsSection comments={filteredComments} topComments={topComments} />
 
-        {/* Row 4: Equations panel (full width) */}
+        {/* Row 5: Equations panel (full width) */}
         <EquationsPanel result={equationResult} n={filteredComments.length} />
 
-        {/* Row 5: Sentiment timeline (full width) */}
+        {/* Row 6: Sentiment timeline (full width) */}
         <SentimentTimeline points={timeline} />
       </main>
     </div>
