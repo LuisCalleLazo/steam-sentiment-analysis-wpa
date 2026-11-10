@@ -858,11 +858,70 @@
 }
 
 .empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
   text-align: center;
   color: #7a96ae;
-  padding: 32px;
+  padding: 64px 32px;
+  min-height: 240px;
+}
+
+.empty-state .empty-icon {
+  font-size: 4rem;
+  opacity: 0.6;
+}
+
+.empty-state h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #c5d8ea;
+  font-weight: 600;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #7a96ae;
+}
+
+/* ── Ranking skeleton loader ───────────────────────────────────────────────── */
+.ranking-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 0;
+}
+
+.skeleton-row {
+  height: 42px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.04) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ── Ranking empty message ─────────────────────────────────────────────────── */
+.ranking-empty {
+  text-align: center;
+  color: #7a96ae;
+  padding: 40px;
   font-size: 0.9rem;
 }
+
 
 /* ── Responsive: tablet ───────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
@@ -1077,6 +1136,14 @@
   font-size: 0.82rem;
   color: #8892a4;
   line-height: 1.6;
+}
+
+/* ── Podium developer label ────────────────────────────────────────────────── */
+.podium-developer {
+  font-size: 0.72rem;
+  color: #66c0f4;
+  opacity: 0.8;
+  margin-top: 2px;
 }
 
 .formula-inline {

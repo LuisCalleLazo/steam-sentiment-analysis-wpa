@@ -74,15 +74,15 @@ export default function HistogramChart({
       <div className="summary-grid">
         <div>
           <span>Media (x̄)</span>
-          <strong>{histogram.summary.mean.toFixed(2)}</strong>
+          <strong>{(histogram.summary?.mean ?? 0).toFixed(2)}</strong>
         </div>
         <div>
           <span>Mediana</span>
-          <strong>{histogram.summary.median.toFixed(2)}</strong>
+          <strong>{(histogram.summary?.median ?? 0).toFixed(2)}</strong>
         </div>
         <div>
           <span>Desv. estándar (σ)</span>
-          <strong>{histogram.summary.standardDeviation.toFixed(2)}</strong>
+          <strong>{(histogram.summary?.standardDeviation ?? 0).toFixed(2)}</strong>
         </div>
       </div>
     </section>

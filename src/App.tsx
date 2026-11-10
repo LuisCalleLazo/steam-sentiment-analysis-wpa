@@ -1,22 +1,29 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import "./App.css";
 
-// ── Static data (stats stay hardcoded, game metadata comes from API) ──────────
-import { gameDetails as hardcodedGameDetails } from "./data/games";
-import { gameCommentsById } from "./data/comments";
+// ── API services ──────────────────────────────────────────────────────────────
+import {
+  fetchGame,
+  getCommentsByGameId,
+  getHistogram,
+  getRankedGames,
+  getTopComments,
+} from "./services/api";
 
-// ── API service ───────────────────────────────────────────────────────────────
-import { fetchGame } from "./services/api";
-import type { GameDto } from "./types";
+// ── Types ─────────────────────────────────────────────────────────────────────
+import type {
+  GameDto,
+  CommentDto,
+  HistogramResultDto,
+  CommentTop,
+} from "./types";
 
-// ── Statistical utilities ─────────────────────────────────────────────────────
+// ── Statistical utilities (computed on the frontend from API comments) ────────
 import {
   buildHistogram,
-  buildTopComments,
   buildSentimentSummary,
   buildEquationResult,
   buildTimeline,
-  buildRanking,
 } from "./utils/statistics";
 
 // ── Components ────────────────────────────────────────────────────────────────
@@ -34,83 +41,120 @@ import GameSearchSelect from "./components/GameSearchSelect";
 
 type GameOption = { value: string; label: string };
 
-// Default game shown on first load (hardcoded fallback)
-const DEFAULT_GAME_ID = "the-forest";
+/** Empty histogram shown while loading or when no game is selected */
+const EMPTY_HISTOGRAM: HistogramResultDto = buildHistogram("", []);
 
 function App() {
-  // ── Selector state ──────────────────────────────────────────────────────────
-  const [selectedOption, setSelectedOption] = useState<GameOption | null>({
-    value: DEFAULT_GAME_ID,
-    label: hardcodedGameDetails[DEFAULT_GAME_ID]?.title ?? DEFAULT_GAME_ID,
-  });
+  // ── Game selector ──────────────────────────────────────────────────────────
+  const [selectedOption, setSelectedOption] = useState<GameOption | null>(null);
+  const [selectedGame, setSelectedGame] = useState<GameDto | null>(null);
 
-  // ── Game metadata: starts with hardcoded fallback, replaced by API data ─────
-  const [selectedGame, setSelectedGame] = useState<GameDto>(
-    hardcodedGameDetails[DEFAULT_GAME_ID],
-  );
+  // ── API data ───────────────────────────────────────────────────────────────
+  const [comments, setComments] = useState<CommentDto[]>([]);
+  const [histogram, setHistogram] = useState<HistogramResultDto>(EMPTY_HISTOGRAM);
+  const [topComments, setTopComments] = useState<CommentTop[]>([]);
+  const [rankedGames, setRankedGames] = useState<GameDto[]>([]);
+
+  // ── Loading / error states ─────────────────────────────────────────────────
   const [gameLoading, setGameLoading] = useState(false);
-  const [gameError, setGameError] = useState<string | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [rankingLoading, setRankingLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
-  // ── Date filter state ────────────────────────────────────────────────────────
-  const [startDate, setStartDate] = useState("2024-01-01");
-  const [endDate, setEndDate] = useState("2024-12-31");
+  // ── Date filters (vacío = sin filtro) ───────────────────────────────────────
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
-  // ── Handle game selection ────────────────────────────────────────────────────
-  const handleGameChange = useCallback(async (option: GameOption | null) => {
-    setSelectedOption(option);
-    setGameError(null);
-
-    if (!option) return;
-
-    const gameId = option.value;
-
-    // 1. If we have hardcoded metadata, use it immediately (no flicker)
-    if (hardcodedGameDetails[gameId]) {
-      setSelectedGame(hardcodedGameDetails[gameId]);
-    }
-
-    // 2. Always fetch from API to get fresh/accurate data
-    setGameLoading(true);
-    try {
-      const apiGame = await fetchGame(gameId);
-      setSelectedGame(apiGame);
-    } catch (err) {
-      // If API fails and we have hardcoded fallback, keep it silently
-      if (!hardcodedGameDetails[gameId]) {
-        setGameError("No se pudo cargar la información del juego.");
-      }
-    } finally {
-      setGameLoading(false);
-    }
+  // ── Load global ranking once on mount ────────────────────────────────────
+  useEffect(() => {
+    setRankingLoading(true);
+    getRankedGames()
+      .then(setRankedGames)
+      .catch(() => setRankedGames([]))
+      .finally(() => setRankingLoading(false));
   }, []);
 
-  // ── Active game ID (for stats lookup) ───────────────────────────────────────
-  const selectedGameId = selectedOption?.value ?? DEFAULT_GAME_ID;
+  // ── Load game data when selection changes ────────────────────────────────
+  useEffect(() => {
+    if (!selectedOption) {
+      setSelectedGame(null);
+      setComments([]);
+      setHistogram(EMPTY_HISTOGRAM);
+      setTopComments([]);
+      return;
+    }
 
-  // ── Filter + sort comments by date range (stats stay hardcoded) ─────────────
+    const gameId = selectedOption.value;
+    setStatsError(null);
+
+    // 1. Fetch game metadata
+    setGameLoading(true);
+    fetchGame(gameId)
+      .then(setSelectedGame)
+      .catch(() => setStatsError("No se pudo cargar la información del juego."))
+      .finally(() => setGameLoading(false));
+
+    // 2. Fetch comments + histogram + top comments in parallel
+    setStatsLoading(true);
+    Promise.all([
+      getCommentsByGameId(gameId),
+      getHistogram(gameId, startDate, endDate),
+      getTopComments(startDate, endDate),
+    ])
+      .then(([newComments, newHistogram, newTopComments]) => {
+        setComments(newComments);
+        setHistogram(newHistogram);
+        setTopComments(newTopComments);
+      })
+      .catch(() => setStatsError("Error al cargar los datos de análisis."))
+      .finally(() => setStatsLoading(false));
+  }, [selectedOption]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Re-fetch histogram + top comments when dates change ──────────────────
+  useEffect(() => {
+    if (!selectedOption) return;
+    const gameId = selectedOption.value;
+
+    Promise.all([
+      getHistogram(gameId, startDate, endDate),
+      getTopComments(startDate, endDate),
+    ])
+      .then(([newHistogram, newTopComments]) => {
+        setHistogram(newHistogram);
+        setTopComments(newTopComments);
+      })
+      .catch(() => {}); // silent — keep previous data on error
+  }, [startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Handle game selection from combobox ──────────────────────────────────
+  const handleGameChange = useCallback((option: GameOption | null) => {
+    setSelectedOption(option);
+  }, []);
+
+  // ── Locally filtered comments (for equations, timeline, sentiment ring) ──
   const filteredComments = useMemo(() => {
     const start = startDate ? new Date(startDate) : null;
     const end = endDate ? new Date(endDate) : null;
 
-    return [...(gameCommentsById[selectedGameId] ?? [])]
+    // Año 1 = fecha inválida/sin fecha en MongoDB → siempre incluir
+    const MIN_VALID = new Date("2000-01-01");
+
+    return [...comments]
       .filter(({ date }) => {
         const d = new Date(date);
+        // Si la fecha es inválida o antes de 2000, incluirla sin filtrar
+        if (!date || isNaN(d.getTime()) || d < MIN_VALID) return true;
         if (start && d < start) return false;
         if (end && d > end) return false;
         return true;
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedGameId, startDate, endDate]);
+  }, [comments, startDate, endDate]);
 
-  // ── Derived statistics ───────────────────────────────────────────────────────
+  // ── Derived statistics (computed on the frontend from API comments) ───────
   const sentimentSummary = useMemo(
     () => buildSentimentSummary(filteredComments),
     [filteredComments],
-  );
-
-  const histogram = useMemo(
-    () => buildHistogram(selectedGame.title, filteredComments.map((c) => c.sentiment)),
-    [filteredComments, selectedGame.title],
   );
 
   const equationResult = useMemo(
@@ -118,19 +162,17 @@ function App() {
     [filteredComments],
   );
 
-  const timeline = useMemo(() => buildTimeline(filteredComments), [filteredComments]);
-
-  const topComments = useMemo(() => buildTopComments(filteredComments), [filteredComments]);
-
-  // Global ranking across ALL hardcoded games (not affected by filter)
-  const ranking = useMemo(
-    () => buildRanking(gameCommentsById, hardcodedGameDetails),
-    [],
+  const timeline = useMemo(
+    () => buildTimeline(filteredComments),
+    [filteredComments],
   );
+
+  // ── Determine whether to show game-specific panels ───────────────────────
+  const hasGame = selectedGame !== null;
 
   return (
     <div className="app-shell">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className="page-header">
         <div>
           <p className="eyebrow">Steam sentiment analysis</p>
@@ -138,57 +180,81 @@ function App() {
         </div>
 
         <div className="header-actions">
-          {/* ── Async game search combobox ─────────────────────────────────── */}
           <GameSearchSelect
             value={selectedOption}
             onChange={handleGameChange}
           />
 
-          <button type="button" className="pdf-button" onClick={() => window.print()}>
+          <button
+            type="button"
+            className="pdf-button"
+            onClick={() => window.print()}
+          >
             Exportar PDF
           </button>
         </div>
       </header>
 
-      {/* ── API status feedback ─────────────────────────────────────────────── */}
-      {gameLoading && (
+      {/* ── Status banners ──────────────────────────────────────────────── */}
+      {(gameLoading || statsLoading) && (
         <div className="api-status loading" role="status" aria-live="polite">
-          <span className="spinner" /> Cargando información del juego…
+          <span className="spinner" /> Cargando datos del juego…
         </div>
       )}
-      {gameError && (
+      {statsError && (
         <div className="api-status error" role="alert">
-          ⚠️ {gameError}
+          ⚠️ {statsError}
         </div>
       )}
 
-      {/* ── Main grid ──────────────────────────────────────────────────────── */}
+      {/* ── Main grid ───────────────────────────────────────────────────── */}
       <main className="content-grid">
-        {/* Row 1: Game card + Sentiment ring */}
-        <GameOverview game={selectedGame} summary={sentimentSummary} />
-        <SentimentPanel summary={sentimentSummary} />
 
-        {/* Row 2: KPI metrics */}
-        <MetricsGrid summary={sentimentSummary} />
+        {/* ── Global ranking (always visible, loads from API on mount) ── */}
+        <RankingPanel games={rankedGames} loading={rankingLoading} />
 
-        {/* Row 3: Global ranking (full width) */}
-        <RankingPanel ranking={ranking} />
+        {/* ── Empty state: no game selected ──────────────────────────── */}
+        {!hasGame && !statsLoading && (
+          <div className="empty-state card">
+            <div className="empty-icon">🎮</div>
+            <h3>Busca un juego para ver su análisis</h3>
+            <p>Escribe el nombre en el buscador de arriba para comenzar.</p>
+          </div>
+        )}
 
-        {/* Row 4: Histogram + Comments */}
-        <HistogramChart
-          histogram={histogram}
-          startDate={startDate}
-          endDate={endDate}
-          onStartDate={setStartDate}
-          onEndDate={setEndDate}
-        />
-        <CommentsSection comments={filteredComments} topComments={topComments} />
+        {/* ── Game-specific panels (shown only when a game is selected) ─ */}
+        {hasGame && (
+          <>
+            {/* Row: Game card + Sentiment ring */}
+            <GameOverview game={selectedGame} summary={sentimentSummary} />
+            <SentimentPanel summary={sentimentSummary} />
 
-        {/* Row 5: Equations panel (full width) */}
-        <EquationsPanel result={equationResult} n={filteredComments.length} />
+            {/* Row: KPI metrics */}
+            <MetricsGrid summary={sentimentSummary} />
 
-        {/* Row 6: Sentiment timeline (full width) */}
-        <SentimentTimeline points={timeline} />
+            {/* Row: Histogram (API) + Comments (API) */}
+            <HistogramChart
+              histogram={histogram}
+              startDate={startDate}
+              endDate={endDate}
+              onStartDate={setStartDate}
+              onEndDate={setEndDate}
+            />
+            <CommentsSection
+              comments={filteredComments}
+              topComments={topComments}
+            />
+
+            {/* Row: Statistical equations (computed locally from API comments) */}
+            <EquationsPanel
+              result={equationResult}
+              n={filteredComments.length}
+            />
+
+            {/* Row: Sentiment timeline (computed locally from API comments) */}
+            <SentimentTimeline points={timeline} />
+          </>
+        )}
       </main>
     </div>
   );
